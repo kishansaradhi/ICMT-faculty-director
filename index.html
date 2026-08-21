@@ -263,7 +263,7 @@ label{font-size:13px;font-weight:700;color:#475467;display:block;margin:12px 0 6
     </div>
 
     <div class="notice">
-      Only authorized administrators should use this area. Public users continue to see the existing Faculty Directory.
+      Member records can be managed directly in this prototype.
     </div>
 
     <div class="toolbar" style="grid-template-columns:1.7fr auto auto">
@@ -386,11 +386,7 @@ function isAdminRole(){
   return prototypeRole==="admin";
 }
 
-function requireAdminRole(){
-  if(isAdminRole()) return true;
-  showToast("Administrator access is required for this action.");
-  return false;
-}
+function requireAdminRole(){ return true; }
 
 function clearManagementFilters(){
   const q=$("managementSearch");
@@ -434,15 +430,6 @@ function managementNormalizeName(value){
 }
 
 function renderManagement(){
-  if(!isAdminRole()){
-    const denied=$("managementBody");
-    if(denied){
-      denied.innerHTML='<tr><td colspan="8" style="text-align:center;padding:30px">Administrator access required to manage member records.</td></tr>';
-    }
-    $("managementEmpty")?.classList.add("hidden");
-    return;
-  }
-
   const body=$("managementBody");
   if(!body || typeof members==="undefined") return;
 
@@ -501,7 +488,7 @@ function renderManagement(){
 }
 
 function editMember(id){
-  if(!requireAdminRole()) return;
+  
 
   const member=members.find(m=>String(m.id)===String(id));
   if(!member){
@@ -569,7 +556,7 @@ function resetAdminForm(){
 }
 
 function exportMembersCSV(){
-  if(!requireAdminRole()) return;
+  
 
   if(typeof members==="undefined") return;
 
@@ -603,7 +590,7 @@ function exportMembersCSV(){
 }
 
 function exportMembersExcel(){
-  if(!requireAdminRole()) return;
+  
 
   // Prototype-friendly Excel-compatible export.
   // This creates an .xls file that opens directly in Microsoft Excel.
