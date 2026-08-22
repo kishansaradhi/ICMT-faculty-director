@@ -153,6 +153,26 @@ label{font-size:13px;font-weight:700;color:#475467;display:block;margin:12px 0 6
 </style>
 
 
+
+<style id="management-view-styles">
+.modal-overlay{position:fixed;inset:0;background:rgba(15,23,42,.58);z-index:9999;align-items:center;justify-content:center;padding:24px}
+.modal-card{width:min(980px,100%);background:#fff;border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,.22);padding:22px}
+.modal-head{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:18px}
+.management-view-header{display:flex;align-items:center;gap:18px;padding-bottom:18px;border-bottom:1px solid #e5e7eb}
+.management-view-photo{width:100px;height:120px;object-fit:cover;border-radius:10px;border:1px solid #e5e7eb;display:flex;align-items:center;justify-content:center;background:#f8fafc}
+.management-view-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:18px}
+.management-view-field{padding:12px;border:1px solid #e5e7eb;border-radius:10px;background:#f8fafc}
+.management-view-full{grid-column:1/-1}
+.management-view-field .label{font-size:11px;font-weight:700;text-transform:uppercase;color:#64748b;margin-bottom:5px}
+.management-view-field .value{font-size:14px;color:#172033;word-break:break-word}
+.management-no-photo{font-size:12px;color:#64748b}
+@media(max-width:700px){.management-view-grid{grid-template-columns:1fr}.management-view-full{grid-column:auto}.modal-overlay{padding:10px}.modal-card{padding:16px}}
+</style>
+<style id="data-quality-styles">
+@media(max-width:1100px){#management .cards{grid-template-columns:repeat(3,minmax(0,1fr))!important}}
+@media(max-width:700px){#management .cards{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
+@media(max-width:560px){#management .cards{grid-template-columns:1fr!important}}
+</style>
 </head>
 <body>
 
@@ -266,6 +286,23 @@ label{font-size:13px;font-weight:700;color:#475467;display:block;margin:12px 0 6
       Member records can be managed directly in this prototype.
     </div>
 
+    <div class="panel" style="margin:0 0 16px;padding:16px;background:#f8fafc">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+        <div>
+          <h3 style="margin:0">Data Quality</h3>
+          <div class="subtitle" style="margin-top:4px">Quick check of member records and photographs</div>
+        </div>
+        <span class="badge green" id="dataQualityStatus">Healthy</span>
+      </div>
+      <div class="cards" style="grid-template-columns:repeat(4,minmax(0,1fr));gap:10px">
+        <div class="card"><div class="label">Total Members</div><div class="metric" id="qualityTotal">0</div></div>
+        <div class="card"><div class="label">Complete Profiles</div><div class="metric" id="qualityComplete">0</div></div>
+        <div class="card"><div class="label">Missing Photos</div><div class="metric" id="qualityPhotos">0</div></div>
+        <div class="card"><div class="label">Missing Information</div><div class="metric" id="qualityMissing">0</div></div>
+        <div class="card"><div class="label">Duplicate IDs</div><div class="metric" id="qualityDuplicateIds">0</div></div>
+      </div>
+    </div>
+
     <div class="toolbar" style="grid-template-columns:1.7fr auto auto">
       <input id="managementSearch" placeholder="Search member ID, name, designation or institution" oninput="renderManagement()">
       <select id="managementDesignation" onchange="renderManagement()">
@@ -292,7 +329,7 @@ label{font-size:13px;font-weight:700;color:#475467;display:block;margin:12px 0 6
             <th>Designation</th>
             <th>Institution / Organization</th>
             <th>Qualification</th>
-            <th>Status</th>
+            <th>Photo Status</th>
             <th>Actions</th>
           </tr>
         </thead>
@@ -303,6 +340,19 @@ label{font-size:13px;font-weight:700;color:#475467;display:block;margin:12px 0 6
   </div>
 </section>
 
+
+<div id="managementViewModal" class="modal-overlay" style="display:none" aria-hidden="true">
+  <div class="modal-card" style="max-width:980px;max-height:90vh;overflow:auto">
+    <div class="modal-head">
+      <div>
+        <h2 style="margin:0">Complete Member Record</h2>
+        <div class="subtitle">Full member information</div>
+      </div>
+      <button class="btn secondary" type="button" onclick="closeManagementMemberView()">Close</button>
+    </div>
+    <div id="managementViewContent"></div>
+  </div>
+</div>
 <section id="add" class="page"><div class="panel"><h2 id="addHeading">Manual Member Entry</h2><div class="notice">Available to authorized users. The same standardized member-data structure is used for manual entry and member registration.</div>
 <form id="adminForm" class="form">
 <div class="field"><label>Title</label><select name="title"><option>Dr.</option><option>Mr.</option><option>Ms.</option><option>Mrs.</option></select></div><div class="field"><label>Name *</label><input name="name" required></div>
@@ -429,9 +479,112 @@ function managementNormalizeName(value){
   return match ? match[0].toUpperCase() : "#";
 }
 
+
+function viewManagementMember(id){
+  const member=members.find(m=>String(m.id)===String(id));
+  if(!member){ showToast("Member record not found."); return; }
+
+  const modal=$("managementViewModal");
+  const content=$("managementViewContent");
+  if(!modal || !content){ showToast("Member details view is unavailable."); return; }
+
+  const value=v=>{
+    if(v===null||v===undefined||String(v).trim()==="") return "Not specified";
+    return Array.isArray(v)?v.join(", "):String(v);
+  };
+  const field=(label,v,full=false)=>
+    '<div class="management-view-field'+(full?' management-view-full':'')+'">'
+    +'<div class="label">'+esc(label)+'</div><div class="value">'+esc(value(v))+'</div></div>';
+
+  const photo=member.photo
+    ? '<img class="management-view-photo" src="'+member.photo+'" alt="Member photo">'
+    : '<div class="management-view-photo management-no-photo">No photo</div>';
+
+  content.innerHTML=
+    '<div class="management-view-header">'+photo+
+      '<div><h2 style="margin:0 0 5px">'+esc(member.name)+'</h2>'+
+      '<div class="subtitle">'+esc(member.designation||"Not specified")+' • '+esc(member.id)+'</div></div>'+
+    '</div>'+
+    '<div class="management-view-grid">'+
+      field("Member ID",member.id)+field("Name",member.name)+
+      field("Qualification",member.qualification)+field("Designation",member.designation)+
+      field("Department",member.department)+field("Institution / Organization",member.college)+
+      field("College Address",member.collegeAddress,true)+
+      field("Pincode",member.pincode)+field("Permanent Address Pincode",member.permanentPincode)+
+      field("City",member.city)+field("State / Province",member.state)+field("Country",member.country)+
+      field("Research Guideship",member.guideship,true)+field("Expertise",member.expertise,true)+
+      field("Mobile",member.mobile)+field("WhatsApp",member.whatsapp)+
+      field("Professional Email",member.professionalEmail)+field("Personal Email",member.personalEmail)+
+      field("LinkedIn",member.linkedin)+field("ORCID",member.orcid)+field("Google Scholar",member.scholar)+
+    '</div>';
+
+  modal.style.display="flex";
+  modal.setAttribute("aria-hidden","false");
+}
+
+function closeManagementMemberView(){
+  const modal=$("managementViewModal");
+  if(modal){ modal.style.display="none"; modal.setAttribute("aria-hidden","true"); }
+}
+
+
+function updateDataQuality(){
+  const total=members.length;
+
+  const complete=members.filter(m=>{
+    const required=[
+      m.name,m.qualification,m.designation,m.department,
+      m.college,m.state,m.country,m.expertise
+    ];
+    return required.every(v=>String(v??"").trim()!=="");
+  }).length;
+
+  const missingPhotos=members.filter(m=>!String(m.photo||"").trim()).length;
+
+  const idCounts={};
+  members.forEach(m=>{
+    const id=String(m.id||"").trim().toUpperCase();
+    if(id) idCounts[id]=(idCounts[id]||0)+1;
+  });
+  const duplicateIds=Object.values(idCounts).filter(count=>count>1).length;
+
+  const missingFields=members.reduce((count,m)=>{
+    const required=[
+      m.name,m.qualification,m.designation,m.department,
+      m.college,m.state,m.country,m.expertise
+    ];
+    return count + required.filter(v=>String(v??"").trim()==="").length;
+  },0);
+
+  const set=(id,value)=>{
+    const el=$(id);
+    if(el) el.textContent=String(value);
+  };
+
+  set("qualityTotal",total);
+  set("qualityComplete",complete);
+  set("qualityPhotos",missingPhotos);
+  set("qualityMissing",missingFields);
+  set("qualityDuplicateIds",duplicateIds);
+
+  const status=$("dataQualityStatus");
+  if(status){
+    if(missingPhotos===0 && missingFields===0 && duplicateIds===0){
+      status.textContent="Healthy";
+      status.className="badge green";
+    }else{
+      status.textContent="Needs Review";
+      status.className="badge";
+      status.style.background="#fff7ed";
+      status.style.color="#9a3412";
+    }
+  }
+}
+
 function renderManagement(){
   const body=$("managementBody");
   if(!body || typeof members==="undefined") return;
+  updateDataQuality();
 
   const q=normalize($("managementSearch")?.value);
   const designation=$("managementDesignation")?.value||"";
@@ -479,8 +632,11 @@ function renderManagement(){
       +'<td>'+esc(m.designation||"Not specified")+'</td>'
       +'<td>'+esc(m.college||"Not specified")+'</td>'
       +'<td class="management-qualification">'+esc(m.qualification||"Not specified")+'</td>'
-      +'<td><span class="badge green">Active</span></td>'
+      +'<td>'+(m.photo
+        ? '<span class="badge green">Photo Ready</span>'
+        : '<span class="badge" style="background:#fff7ed;color:#9a3412">Photo Missing</span>')+'</td>'
       +'<td><div class="management-actions">'
+      +'<button class="btn secondary" type="button" onclick="viewManagementMember(\''+esc(m.id)+'\')">View</button>'
       +'<button class="btn primary" type="button" onclick="editMember(\''+esc(m.id)+'\')">Edit</button>'
       +'</div></td>'
       +'</tr>';
@@ -778,6 +934,7 @@ function showPage(id,button){
   if(button) button.classList.add("active");
   if(id==="dashboard") updateDashboard();
   if(id==="directory") renderDirectory();
+  if(id==="management") renderManagement();
   if(id==="users") renderUsers();
 }
 
@@ -811,17 +968,66 @@ function readForm(form){
 }
 
 function uniqueCheck(record,excludeId){
+  const currentId=String(record.id||"").trim();
   const email=normalize(record.professionalEmail);
   const phone=String(record.mobile||"").replace(/\D/g,"");
 
-  if(email){
-    const exists=members.some(m=>String(m.id)!==String(excludeId||"") && normalize(m.professionalEmail)===email);
-    if(exists){ alert("This professional email is already registered."); return false; }
+  // Member IDs must be unique.
+  if(currentId){
+    const duplicateId=members.some(m=>
+      String(m.id||"").trim().toUpperCase()===currentId.toUpperCase()
+      && String(m.id||"")!==String(excludeId||"")
+    );
+    if(duplicateId){
+      alert("This Member ID is already assigned to another member.");
+      return false;
+    }
   }
 
+  // Professional email must be unique.
+  if(email){
+    const exists=members.some(m=>
+      String(m.id||"")!==String(excludeId||"")
+      && normalize(m.professionalEmail)===email
+    );
+    if(exists){
+      alert("This professional email is already registered.");
+      return false;
+    }
+  }
+
+  // Mobile number must be unique.
   if(phone){
-    const exists=members.some(m=>String(m.id)!==String(excludeId||"") && String(m.mobile||"").replace(/\D/g,"")===phone);
-    if(exists){ alert("This phone number is already registered."); return false; }
+    const exists=members.some(m=>
+      String(m.id||"")!==String(excludeId||"")
+      && String(m.mobile||"").replace(/\D/g,"")===phone
+    );
+    if(exists){
+      alert("This phone number is already registered.");
+      return false;
+    }
+  }
+
+  return true;
+}
+
+
+function validateMemberId(id,excludeId){
+  const value=String(id||"").trim().toUpperCase();
+
+  if(!/^ICMT\d{3,}$/.test(value)){
+    alert("Invalid Member ID. Use the format ICMT001, ICMT002, ICMT003...");
+    return false;
+  }
+
+  const duplicate=members.some(m=>
+    String(m.id||"").trim().toUpperCase()===value
+    && String(m.id||"")!==String(excludeId||"")
+  );
+
+  if(duplicate){
+    alert("Member ID "+value+" already exists. Please use a unique ID.");
+    return false;
   }
 
   return true;
@@ -833,7 +1039,7 @@ function buildRecord(form,existing){
   return {
     ...(existing||{}),
     ...data,
-    id:existing?.id||nextId(),
+    id:String(existing?.id||nextId()).trim().toUpperCase(),
     name:((data.title||"")+" "+name).trim(),
     photo:photoData || existing?.photo || ""
   };
@@ -877,6 +1083,7 @@ function handleAdminSubmit(event){
       return;
     }
 
+    if(!validateMemberId(record.id,existingId)) return;
     if(!uniqueCheck(record,existingId)) return;
 
     if(existingId){
@@ -894,6 +1101,7 @@ function handleAdminSubmit(event){
     members=loadMembers();
     updateDashboard();
     renderDirectory();
+    updateDataQuality();
 
     if(existingId){
       resetEntryForm();
@@ -1186,7 +1394,6 @@ function viewProfile(id){
     +'<div><div class="photo-large">'+photo+'</div></div>'
     +'<div>'
     +'<div class="info-grid">'
-    +'<div class="info"><b>Member ID</b>'+esc(member.id||"Not specified")+'</div>'
     +'<div class="info"><b>Name</b>'+esc(member.name||"Not specified")+'</div>'
     +'<div class="info"><b>Designation</b>'+esc(member.designation||"Not specified")+'</div>'
     +'<div class="info"><b>Qualification</b>'+esc(member.qualification||"Not specified")+'</div>'
