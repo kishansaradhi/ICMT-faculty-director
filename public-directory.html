@@ -831,8 +831,8 @@ button{cursor:pointer}
   </div>
 </footer>
 
-<!-- Load Master Data File -->
-<script src="js/member-data.js"></script>
+<!-- API configuration; the directory is loaded from the backend. -->
+<script src="js/api-config.js"></script>
 
 <script>
 let currentViewMode = "grid";
@@ -894,7 +894,7 @@ function normalizeNameForAZ(value){
   return { firstLetter, fullName };
 }
 
-function loadFacultyData(){
+function loadLegacyFacultyData(){
   try {
     const raw = localStorage.getItem("icmtFacultyDirectoryMembers_v4");
     if(raw){
@@ -908,6 +908,22 @@ function loadFacultyData(){
     return window.ICMT_MASTER_DATA;
   }
   return [];
+}
+
+async function loadFacultyData(){
+  const baseUrl = String(window.ICMT_API_BASE_URL || "").replace(/\/$/, "");
+  if(baseUrl){
+    try {
+      const response = await fetch(baseUrl + "/api/members", { headers: { Accept: "application/json" } });
+      if(response.ok){
+        const records = await response.json();
+        if(Array.isArray(records)) return records;
+      }
+    } catch(error) {
+      console.info("ICMT API is unavailable; using bundled directory data.", error);
+    }
+  }
+  return loadLegacyFacultyData();
 }
 
 function initFilters(){
@@ -1184,8 +1200,8 @@ document.addEventListener("keydown", e => {
   if(e.key === "Escape") closeProfileModal();
 });
 
-function initPublicDirectory(){
-  allMembers = loadFacultyData();
+async function initPublicDirectory(){
+  allMembers = await loadFacultyData();
   initFilters();
   renderFacultyDirectory();
 }
@@ -1196,14 +1212,14 @@ if(document.readyState === "loading"){
   initPublicDirectory();
 }
 
-window.addEventListener("focus", function(){
-  allMembers = loadFacultyData();
+window.addEventListener("focus", async function(){
+  allMembers = await loadFacultyData();
   renderFacultyDirectory();
 });
 
-window.addEventListener("storage", function(e){
+window.addEventListener("storage", async function(e){
   if(e.key === "icmtFacultyDirectoryMembers_v4"){
-    allMembers = loadFacultyData();
+    allMembers = await loadFacultyData();
     renderFacultyDirectory();
   }
 });

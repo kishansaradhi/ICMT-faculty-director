@@ -1,0 +1,11 @@
+# Python backend runtime data and secrets
+backend/.env
+backend/icmt.db
+backend/seed/member-data.js
+backend/.venv/
+backend/__pycache__/
+backend/app/__pycache__/
+backups/
+
+# IDE settings
+.idea/

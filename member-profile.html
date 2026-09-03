@@ -458,7 +458,7 @@ a{text-decoration:none;color:inherit}
   </div>
 </footer>
 
-<script src="js/member-data.js"></script>
+<script src="js/api-config.js"></script>
 <script>
 function esc(v){
   return String(v ?? "").replace(/[&<>"]/g, c=>({
@@ -474,7 +474,7 @@ function initials(name){
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
-function getFacultyList(){
+function getLegacyFacultyList(){
   try {
     const raw = localStorage.getItem("icmtFacultyDirectoryMembers_v4");
     if(raw){
@@ -487,11 +487,24 @@ function getFacultyList(){
   return window.ICMT_MASTER_DATA || [];
 }
 
-function loadMemberProfile(){
+async function getFacultyList(targetId){
+  const baseUrl = String(window.ICMT_API_BASE_URL || "").replace(/\/$/, "");
+  if(baseUrl && targetId){
+    try {
+      const response = await fetch(baseUrl + "/api/members/" + encodeURIComponent(targetId), { headers: { Accept: "application/json" } });
+      if(response.ok) return [await response.json()];
+    } catch(error) {
+      console.info("ICMT API is unavailable; using bundled directory data.", error);
+    }
+  }
+  return getLegacyFacultyList();
+}
+
+async function loadMemberProfile(){
   const params = new URLSearchParams(window.location.search);
   const targetId = (params.get("id") || "").trim().toUpperCase();
 
-  const list = getFacultyList();
+  const list = await getFacultyList(targetId);
   let member = list.find(m => String(m.id || "").trim().toUpperCase() === targetId);
 
   if(!member && list.length){

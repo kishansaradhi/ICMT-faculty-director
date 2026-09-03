@@ -1,6 +1,40 @@
 const MEMBER_STORE_KEY = "icmtFacultyDirectoryMembers_v4";
 const USER_STORE_KEY = "icmtFacultyDirectoryUsers_v4";
 const MEMBER_DATA_VERSION = "combined-343-members-restored-v5";
+const ADMIN_TOKEN_KEY = "icmtAdminApiToken";
+let adminApiToken = sessionStorage.getItem(ADMIN_TOKEN_KEY) || "";
+
+function apiBaseUrl(){
+  // Local development default also protects admin login if a browser serves a
+  // cached admin.html without api-config.js. Production still overrides this
+  // through js/api-config.js.
+  return String(window.ICMT_API_BASE_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
+}
+
+async function apiRequest(path, options={}){
+  const baseUrl=apiBaseUrl();
+  if(!baseUrl) throw new Error("The ICMT API URL is not configured.");
+  const headers={ Accept:"application/json", ...(options.headers||{}) };
+  if(adminApiToken) headers["X-ICMT-Admin-Token"]=adminApiToken;
+  const response=await fetch(baseUrl+path,{...options,headers});
+  const body=await response.json().catch(()=>({}));
+  if(!response.ok) throw new Error(body.detail||"The ICMT server could not complete the request.");
+  return body;
+}
+
+async function syncMembersToApi(){
+  if(!adminApiToken) return;
+  try{
+    await apiRequest("/api/admin/members/sync",{
+      method:"PUT",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({members})
+    });
+  }catch(error){
+    console.error(error);
+    showToast("Changes are saved locally but could not be synced to the server.");
+  }
+}
 try {
   const savedVersion = localStorage.getItem("icmtFacultyDirectoryDataVersion");
   const master = window.ICMT_MASTER_DATA || [];
@@ -907,9 +941,12 @@ function renderManagement(){
       m.college,m.state,m.country,m.expertise
     ].every(v=>String(v??"").trim()!=="");
 
-    const statusBadge = hasPhoto
-      ? (isComplete ? '<span class="badge green">Complete</span>' : '<span class="badge" style="background:#eaf5fb;color:#126b9b">Missing Info</span>')
-      : '<span class="badge" style="background:#fff7ed;color:#9a3412">No Photo</span>';
+    const pending=String(m.status||"").toLowerCase()==="pending";
+    const statusBadge = pending
+      ? '<span class="badge" style="background:#fef3c7;color:#92400e">Pending Review</span>'
+      : hasPhoto
+        ? (isComplete ? '<span class="badge green">Complete</span>' : '<span class="badge" style="background:#eaf5fb;color:#126b9b">Missing Info</span>')
+        : '<span class="badge" style="background:#fff7ed;color:#9a3412">No Photo</span>';
 
     return '<tr>'
       +'<td class="management-photo">'+photo+'</td>'
@@ -922,10 +959,21 @@ function renderManagement(){
       +'<td><div class="management-actions" style="display:flex;gap:4px;flex-wrap:wrap">'
       +'<button class="btn secondary" style="padding:4px 8px;font-size:12px" type="button" onclick="viewManagementMember(\''+esc(m.id)+'\')">View</button>'
       +'<button class="btn primary" style="padding:4px 8px;font-size:12px" type="button" onclick="editMember(\''+esc(m.id)+'\')">Edit</button>'
+      +(pending ? '<button class="btn success" style="padding:4px 8px;font-size:12px" type="button" onclick="approveMember(\''+esc(m.id)+'\')">Approve</button>' : '')
       +'<button class="btn danger" style="padding:4px 8px;font-size:12px;background:#fef2f2;color:#dc2626;border-color:#fecaca" type="button" onclick="deleteMember(\''+esc(m.id)+'\')">Delete</button>'
       +'</div></td>'
       +'</tr>';
   }).join("");
+}
+
+function approveMember(id){
+  const member=members.find(m=>String(m.id)===String(id));
+  if(!member){ showToast("Member record not found."); return; }
+  member.status="active";
+  persist();
+  renderManagement();
+  updateDashboard();
+  showToast("Member approved and published to the directory.");
 }
 
 function deleteMember(id){
@@ -1210,6 +1258,7 @@ function persist(){
   members=dedupeMembers(members);
   localStorage.setItem(MEMBER_STORE_KEY,JSON.stringify(members));
   localStorage.setItem(USER_STORE_KEY,JSON.stringify(users));
+  void syncMembersToApi();
 }
 
 function toast(message){
@@ -1229,8 +1278,30 @@ function removeAdminSidebarButtons(){
   if(profileBtn) profileBtn.remove();
 }
 
-function login(){
-  members=loadMembers();
+async function login(){
+  const email=String($("loginEmail")?.value||"").trim();
+  const password=String($("loginPassword")?.value||"");
+  if(!email || !password){
+    alert("Enter your administrator email and password.");
+    return;
+  }
+  try{
+    const session=await apiRequest("/api/auth/login",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({email,password})
+    });
+    adminApiToken=session.token;
+    sessionStorage.setItem(ADMIN_TOKEN_KEY,adminApiToken);
+    const remoteMembers=await apiRequest("/api/admin/members");
+    members=dedupeMembers(Array.isArray(remoteMembers)?remoteMembers:[]);
+    localStorage.setItem(MEMBER_STORE_KEY,JSON.stringify(members));
+  }catch(error){
+    adminApiToken="";
+    sessionStorage.removeItem(ADMIN_TOKEN_KEY);
+    alert(error.message||"Unable to sign in.");
+    return;
+  }
   removeAdminSidebarButtons();
   $("login").classList.add("hidden");
   $("public").classList.add("hidden");
@@ -1241,6 +1312,8 @@ function login(){
 }
 
 function logout(){
+  adminApiToken="";
+  sessionStorage.removeItem(ADMIN_TOKEN_KEY);
   $("app").classList.add("hidden");
   $("public").classList.add("hidden");
   $("login").classList.remove("hidden");
@@ -1460,7 +1533,7 @@ function handleAdminSubmit(event){
   }
 }
 
-function handlePublicSubmit(event){
+async function handlePublicSubmit(event){
   event.preventDefault();
   if(saving) return;
   saving=true;
@@ -1474,24 +1547,18 @@ function handlePublicSubmit(event){
       return;
     }
 
-    if(!uniqueCheck(record,null)) return;
-
-    members.push(record);
-    persist();
-    members=loadMembers();
-
-    const saved=members.find(m=>String(m.id)===String(record.id));
-    if(!saved) throw new Error("Could not verify saved record.");
+    const submission=await apiRequest("/api/member-submissions",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({member:record})
+    });
 
     form.reset();
     photoData="";
     const preview=$("publicPhoto");
     if(preview) preview.innerHTML="Photo preview";
 
-    updateDashboard();
-    renderDirectory();
-
-    alert("Registration submitted successfully.\nUnique Member ID: "+saved.id);
+    alert("Registration submitted successfully for administrator review.\nReference ID: "+submission.id);
     backLogin();
   }catch(e){
     console.error(e);
